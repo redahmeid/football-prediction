@@ -35,3 +35,7 @@ There are a few areas that I would like to improve on which I think will make th
 
 ## How well it works
 After the half way stage, the model will predict 6/7 correctly with a further 5-8 within one space. 
+
+## Enhancements to the code
+- There are zero tests. This means I change code and test against Mongo directly. No biggie (as my volumes are so small), but I really want to be able to test this quickly
+- This is the first time I have written Python. So I am sure there are many things to change in terms of style and minimising the amount of code.
