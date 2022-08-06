@@ -2,6 +2,7 @@ from pymongo import MongoClient
 # pprint library is used to make the output look more pretty
 from pprint import pprint
 import os
+import time
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -18,6 +19,8 @@ AWAY_XG_FIELD = "Away xG"
 AWAY_FIELD = "Away"
 HOME_POINTS_FIELD="Home points"
 AWAY_POINTS_FIELD="Away points"
+HOME_POSITION_FIELD="Home position"
+AWAY_POSITION_FIELD="Away position"
 ACTUAL = "Actual"
 PREDICTED = "Predicted"
 
@@ -31,8 +34,9 @@ class TeamStats:
     xG = 0
 
 def updatexG(position_first,position_last,home_or_away,home_or_away_xg):
+  pprint("In updatexG")
   oppositeHomeOrAway = AWAY_FIELD if home_or_away == HOME_FIELD else AWAY_FIELD
-  oppositeHomeOrAwayPositionField = oppositeHomeOrAway + " Position"
+  oppositeHomeOrAwayPositionField = AWAY_POSITION_FIELD if home_or_away == HOME_FIELD else HOME_POSITION_FIELD
   xGSearch = [
     {
         '$match': {
@@ -52,6 +56,7 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg):
 
   xGSearch[0]['$match'][oppositeHomeOrAwayPositionField] = {'$gte': position_first,'$lte': position_last}
 
+  pprint(xGSearch)
   matches = db.matches.aggregate(xGSearch)
   for match in matches:
     print(match)
@@ -135,13 +140,41 @@ def updatePositions(homeOrAway):
             print("GW "+str(gw)+" team: "+position["_id"])
             db.positions.update_one({"GW":gw},{"$set":{homeOrAway+".rank."+position["_id"]+".position":i,homeOrAway+".rank."+position["_id"]+".points":position["points"],homeOrAway+".rank."+position["_id"]+".goalsFor":position["goalsFor"],homeOrAway+".rank."+position["_id"]+".goalsAgainst":position["goalsAgainst"]}},True)
 
+def updateMatchPosition(gw):
+  
+
+  matches = db.matches.find({"GW":gw})
+  gwpositions = db.positions.find_one({"GW":gw})
+  for match in matches:
+    
+    hometeamposition = gwpositions["Home"]["rank"][match[HOME_FIELD]]["position"]
+    awayteamposition = gwpositions["Away"]["rank"][match[AWAY_FIELD]]["position"]
+
+    db.matches.update_one({HOME_FIELD:match[HOME_FIELD],AWAY_FIELD:match[AWAY_FIELD],"GW":gw},{"$set":{HOME_POSITION_FIELD:hometeamposition,AWAY_POSITION_FIELD:awayteamposition}})
+
 def setup():
+    
+    start_time = time.time()
+    updatePoints(HOME_FIELD)
+    updatePoints(AWAY_FIELD)
+    print("---completed  updatePoints in %s seconds ---" % (time.time() - start_time))
+
+    start_time = time.time()
+    updatePositions(HOME_FIELD)
+    updatePositions(AWAY_FIELD)
+    print("---completed  updatePositions in %s seconds ---" % (time.time() - start_time))
+
+    start_time = time.time()
+    for gw in range(GW,0,-1):
+      updateMatchPosition(gw)
+    print("---completed  updateMatchPosition in %s seconds ---" % (time.time() - start_time))
+
+    start_time = time.time()
     updatexG(1,4,HOME_FIELD,HOME_XG_FIELD)
     updatexG(5,7,HOME_FIELD,HOME_XG_FIELD)
     updatexG(8,12,HOME_FIELD,HOME_XG_FIELD)
     updatexG(13,17,HOME_FIELD,HOME_XG_FIELD)
     updatexG(18,20,HOME_FIELD,HOME_XG_FIELD)
-
     updatexG(1,4,AWAY_FIELD,AWAY_XG_FIELD)
     updatexG(5,7,AWAY_FIELD,AWAY_XG_FIELD)
     updatexG(8,12,AWAY_FIELD,AWAY_XG_FIELD)
@@ -149,11 +182,11 @@ def setup():
     updatexG(18,20,AWAY_FIELD,AWAY_XG_FIELD)
     updatexG(1,20,AWAY_FIELD,AWAY_XG_FIELD)
     updatexG(1,20,HOME_FIELD,HOME_XG_FIELD)
-    updatePoints(HOME_FIELD)
-    updatePoints(AWAY_FIELD)
-    updatePositions(HOME_FIELD)
-    updatePositions(AWAY_FIELD)
+    print("---completed  updatexG in %s seconds ---" % (time.time() - start_time))
+    
+    start_time = time.time()
     simulateMatches()
+    print("---completed  simulate_matches in %s seconds ---" % (time.time() - start_time))
 
 def simulateMatches():
     print("In simulated matches")
@@ -306,9 +339,9 @@ def getGroup(num,wider=False):
             group="18-20"
     return group
 
-# setup() 
-# prediction()
-# runResults()
+setup() 
+prediction()
+runResults()
 
 comparison(date(2022,8,6))
 
