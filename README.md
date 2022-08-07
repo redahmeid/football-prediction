@@ -4,6 +4,9 @@
 
 This is the code I use to predict the premier league. It is a command line program, backed by a Mongo instance. Currently, the code runs everything, including aggregating the raw stats, simulating the matches and printing the results. This will change (as I don't to run against Mongo every time)
 
+## Known Bugs
+1. Currently, you cannot run the the code twice without deleting the predicted_points collection. Otherwise the predictions will increment. I'll get round to it at some point.
+
 ## How to use
 There is some setup needed.
 
@@ -31,7 +34,7 @@ The model then simulates the remaining matches, predicts the results of the thos
 ## How the model could be improved
 There are a few areas that I would like to improve on which I think will make the accuracy of the predictions better
 1. Monte Carlo simulation. Currently, the match simulation is based on the average xG per game. A Monte Carlo simulation will use the average and standard deviation and run through a few thousand simulations. The idea is that it will give the most likely result. I will try that out
-2. The simulation I run assumes that the position they were in when the prediction was made (e.g. Southampton were 15 in gameweek 19) is where they will be throughout. And therefore there positions are not taken into account as the games are simulated
+2. ~~The simulation I run assumes that the position they were in when the prediction was made (e.g. Southampton were 15 in gameweek 19) is where they will be throughout. And therefore there positions are not taken into account as the games are simulated~~
 
 ## How well it works
 After the half way stage, the model will predict 6/7 correctly with a further 5-8 within one space. 

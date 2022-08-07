@@ -10,10 +10,13 @@ from datetime import date
 # connect to MongoDB, change the << MONGODB URL >> to reflect your own connection string
 client = MongoClient(os.environ["MONGO_URL"])
 db=client[os.environ["DB"]]
+previous_db=client[os.environ["PREVIOUS_SEASON"]]
 
 GW = int(os.environ["GW"])
 
 HOME_XG_FIELD = "Home xG"
+HOME_G_FIELD = "Home goals"
+AWAY_G_FIELD = "Away goals"
 HOME_FIELD = "Home"
 AWAY_XG_FIELD = "Away xG"
 AWAY_FIELD = "Away"
@@ -33,7 +36,7 @@ class TeamStats:
     position_group= TeamStatsGroup()
     xG = 0
 
-def updatexG(position_first,position_last,home_or_away,home_or_away_xg):
+def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_away_g):
   pprint("In updatexG")
   oppositeHomeOrAway = AWAY_FIELD if home_or_away == HOME_FIELD else AWAY_FIELD
   oppositeHomeOrAwayPositionField = AWAY_POSITION_FIELD if home_or_away == HOME_FIELD else HOME_POSITION_FIELD
@@ -49,6 +52,9 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg):
             '_id': '$'+home_or_away, 
             'xG': {
                 '$avg': '$'+home_or_away_xg
+            },
+            'G': {
+                '$avg': '$'+home_or_away_g
             }
         }
     }
@@ -56,6 +62,7 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg):
 
   xGSearch[0]['$match'][oppositeHomeOrAwayPositionField] = {'$gte': position_first,'$lte': position_last}
 
+    
   pprint(xGSearch)
   matches = db.matches.aggregate(xGSearch)
   for match in matches:
@@ -64,8 +71,14 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg):
     teamStat.team = match["_id"]
     teamStat.xG = match["xG"]
     
+
     positionGroup=str(position_first)+"-"+str(position_last)
-    db.team_stats.update_one({"team":teamStat.team},{"$set":{"team":teamStat.team,home_or_away+"."+positionGroup+".xG":teamStat.xG}},True)
+    previous_stats = previous_db.team_stats.find_one({"team":teamStat.team,"GW":38})
+    try:
+      teamStat.xG = (previous_stats[home_or_away+"."+positionGroup+".xG"]+(teamStat.xG*38))/(GW+1)
+    except:
+      teamStat.xG = teamStat.xG
+    db.team_stats.update_one({"team":teamStat.team,"GW":GW},{"$set":{"team":teamStat.team,home_or_away+"."+positionGroup+".xG":teamStat.xG,home_or_away+"."+positionGroup+".G":match["G"]}},True)
     
 
 def updatePoints(homeOrAway):
@@ -140,6 +153,54 @@ def updatePositions(homeOrAway):
             print("GW "+str(gw)+" team: "+position["_id"])
             db.positions.update_one({"GW":gw},{"$set":{homeOrAway+".rank."+position["_id"]+".position":i,homeOrAway+".rank."+position["_id"]+".points":position["points"],homeOrAway+".rank."+position["_id"]+".goalsFor":position["goalsFor"],homeOrAway+".rank."+position["_id"]+".goalsAgainst":position["goalsAgainst"]}},True)
 
+def updatePositionsForSingleGW(GW,homeOrAway):
+      pprint("In updatePositionsForSingleGW(%s,%s)"%(GW,homeOrAway))
+      points = "$Points "+homeOrAway
+      goals = "$"+homeOrAway+" goals"
+      gw=GW
+      oppositeHomeOrAway = AWAY_FIELD if homeOrAway == HOME_FIELD else AWAY_FIELD
+ 
+      goalsAgainst = "$"+oppositeHomeOrAway+" goals"
+    #   console.log("insert for "+homeOrAwayPosition);
+    
+      pointsSearch =[
+        {
+          '$match': {
+            'GW':{
+              "$lte":gw
+            } 
+          }
+        }, {
+          '$group': {
+            '_id': "$"+homeOrAway, 
+            'points': {
+              '$sum': points
+            },
+            'goalsFor': {
+              '$sum': goals
+            },
+            'goalsAgainst': {
+              '$sum': goalsAgainst
+            }
+          }
+        }, {
+          '$sort': {
+            'points': -1,
+            'goalsFor':-1,
+            'goalsAgainst':-1
+          }
+        }
+      ]
+      
+      positions = db.matches.aggregate(pointsSearch)
+      
+      i=0
+      for position in positions:
+          i=i+1
+          print("GW "+str(gw)+" team: "+position["_id"])
+          db.positions.update_one({"GW":gw},{"$set":{homeOrAway+".rank."+position["_id"]+".position":i,homeOrAway+".rank."+position["_id"]+".points":position["points"],homeOrAway+".rank."+position["_id"]+".goalsFor":position["goalsFor"],homeOrAway+".rank."+position["_id"]+".goalsAgainst":position["goalsAgainst"]}},True)
+
+
 def updateMatchPosition(gw):
   
 
@@ -170,18 +231,18 @@ def setup():
     print("---completed  updateMatchPosition in %s seconds ---" % (time.time() - start_time))
 
     start_time = time.time()
-    updatexG(1,4,HOME_FIELD,HOME_XG_FIELD)
-    updatexG(5,7,HOME_FIELD,HOME_XG_FIELD)
-    updatexG(8,12,HOME_FIELD,HOME_XG_FIELD)
-    updatexG(13,17,HOME_FIELD,HOME_XG_FIELD)
-    updatexG(18,20,HOME_FIELD,HOME_XG_FIELD)
-    updatexG(1,4,AWAY_FIELD,AWAY_XG_FIELD)
-    updatexG(5,7,AWAY_FIELD,AWAY_XG_FIELD)
-    updatexG(8,12,AWAY_FIELD,AWAY_XG_FIELD)
-    updatexG(13,17,AWAY_FIELD,AWAY_XG_FIELD)
-    updatexG(18,20,AWAY_FIELD,AWAY_XG_FIELD)
-    updatexG(1,20,AWAY_FIELD,AWAY_XG_FIELD)
-    updatexG(1,20,HOME_FIELD,HOME_XG_FIELD)
+    updatexG(1,4,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
+    updatexG(5,7,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
+    updatexG(8,12,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
+    updatexG(13,17,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
+    updatexG(18,20,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
+    updatexG(1,4,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
+    updatexG(5,7,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
+    updatexG(8,12,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
+    updatexG(13,17,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
+    updatexG(18,20,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
+    updatexG(1,20,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
+    updatexG(1,20,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
     print("---completed  updatexG in %s seconds ---" % (time.time() - start_time))
     
     start_time = time.time()
@@ -197,20 +258,34 @@ def simulateMatches():
             '$gt': GW
           }
         }
-      }
+      },
+        {
+            '$sort': {
+                'GW': 1
+            }
+        }
     ]
 
     matches = db.matches.aggregate(matchesSearch)
    
-    gameWeekPositions = db.positions.find_one({'GW':GW})  
+     
     # db.predicted_points.delete_many({}) 
+    nextGW = GW
     for match in matches:
-        
+        pprint("Looping round matches to simulate")
+        if(match["GW"]!=nextGW):
+          pprint("Gameweek should be different %s %s"%(match["GW"],nextGW))
+          nextGW = match["GW"]
+          updatePositionsForSingleGW(match["GW"],HOME_FIELD)
+          updatePositionsForSingleGW(match["GW"],AWAY_FIELD)
+          updateMatchPosition(match["GW"])
+          
+        gameWeekPositions = db.positions.find_one({'GW':nextGW}) 
         homeTeamPosition = gameWeekPositions[HOME_FIELD]["rank"][match[HOME_FIELD]]["position"]
         awayTeamPosition = gameWeekPositions[AWAY_FIELD]["rank"][match[AWAY_FIELD]]["position"]
         pprint("Simulating match %s (%s) vs %s (%s)"%(match[HOME_FIELD],homeTeamPosition,match[AWAY_FIELD],awayTeamPosition))
 
-        homexGByLocAndPosition = db.team_stats.find_one({'team':match[HOME_FIELD]})
+        homexGByLocAndPosition = db.team_stats.find_one({'team':match[HOME_FIELD],"GW":GW})
         try:
          homexG = round((homexGByLocAndPosition[HOME_FIELD][getGroup(awayTeamPosition)]["xG"])*2)/2
         except KeyError:
@@ -255,10 +330,8 @@ def prediction():
     ]
 
     points= db.predicted_points.aggregate(pointsSearch)
-    print("The predicted placings:")
     i = 1
     for point in points:
-        print(point["team"])
         db.prediction.update_one({"date":str(date.today()),"team":point["team"]},{"$set":{"position":i,"points":point["points"]}},True)
         i=i+1
         
@@ -308,11 +381,12 @@ def runResults():
       i=i+1
 
 def comparison(date):
-  predictions = db.prediction.find({"date":str(date)})
+  predictions = db.prediction.find({"date":str(date)}).sort("position",1)
   correct = 0
   within_one = 0
   for prediction in predictions:
     team = db.actualResult.find_one({"team":prediction["team"]})
+    pprint(prediction["team"]+" Prediction="+str(prediction["position"])+" and actual="+str(team["position"]))
     correct = correct+1 if team["position"]==prediction["position"] else correct
     within_one = within_one+1 if (team["position"]-prediction["position"]==1) else within_one
     within_one = within_one+1 if (team["position"]-prediction["position"]==-1) else within_one
