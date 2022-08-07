@@ -215,6 +215,12 @@ def updateMatchPosition(gw):
 
 def setup():
     
+    db.actualResult.drop()
+    db.predicted_points.drop()
+    db.prediction.drop()
+    db.positions.drop()
+    db.team_stats.drop()
+    db.simulated_matches.drop()
     start_time = time.time()
     updatePoints(HOME_FIELD)
     updatePoints(AWAY_FIELD)
@@ -231,6 +237,7 @@ def setup():
     print("---completed  updateMatchPosition in %s seconds ---" % (time.time() - start_time))
 
     start_time = time.time()
+    
     updatexG(1,4,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
     updatexG(5,7,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
     updatexG(8,12,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
@@ -384,16 +391,31 @@ def comparison(date):
   predictions = db.prediction.find({"date":str(date)}).sort("position",1)
   correct = 0
   within_one = 0
+
+  points_correct=0
+  points_within_5=0
+  points_within_10=0
+  print("|**Team**|**Predicted Position**|**Actual Position**|**Difference**|**Predicted Points**|**Actual Points**|**Difference**|")
+  print("|-------------------|------------|------------|--------------|--------------|----------|-----------|")
+    
   for prediction in predictions:
     team = db.actualResult.find_one({"team":prediction["team"]})
-    pprint(prediction["team"]+" Prediction="+str(prediction["position"])+" and actual="+str(team["position"]))
+    print("|"+prediction["team"]+"|"+str(prediction["position"])+"|"+str(team["position"])+"|"+str(prediction["position"]-team["position"])+"|"+str(prediction["points"])+"|"+str(team["points"])+"|"+str(prediction["points"]-team["points"])+"|")
+    # print("|-------------------|------------|------------|--------------|--------------|----------|-----------|")
     correct = correct+1 if team["position"]==prediction["position"] else correct
     within_one = within_one+1 if (team["position"]-prediction["position"]==1) else within_one
     within_one = within_one+1 if (team["position"]-prediction["position"]==-1) else within_one
   
+    points_correct = points_correct+1 if team["points"]==prediction["points"] else points_correct
+    points_within_5 = points_within_5+1 if (team["points"]-prediction["points"]<5 & team["points"]-prediction["points"]>-5) else points_within_5
+    points_within_10 = points_within_10+1 if (team["points"]-prediction["points"]<10 & team["points"]-prediction["points"]>-10) else points_within_10
+
   pprint("How many correct "+str(correct))
   pprint("How many within one "+str(within_one))
 
+  pprint("How many points predicted correctly "+str(points_correct))
+  pprint("How many predicted within 5 points "+str(points_within_5))
+  pprint("How many predicted within 10 points "+str(points_within_10))
 
 def getGroup(num,wider=False):
     group = ""
@@ -417,6 +439,6 @@ setup()
 prediction()
 runResults()
 
-comparison(date(2022,8,6))
+comparison(date(2022,8,7))
 
 
