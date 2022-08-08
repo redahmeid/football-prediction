@@ -3,6 +3,7 @@ from pymongo import MongoClient
 from pprint import pprint
 import os
 import time
+import datetime
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -13,7 +14,7 @@ db=client[os.environ["DB"]]
 previous_db=client[os.environ["PREVIOUS_SEASON"]]
 
 GW = int(os.environ["GW"])
-
+MODEL_VERSION="0.0.1"
 HOME_XG_FIELD = "Home xG"
 HOME_G_FIELD = "Home goals"
 AWAY_G_FIELD = "Away goals"
@@ -36,7 +37,7 @@ class TeamStats:
     position_group= TeamStatsGroup()
     xG = 0
 
-def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_away_g):
+def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_away_g,model_version=MODEL_VERSION):
   pprint("In updatexG")
   oppositeHomeOrAway = AWAY_FIELD if home_or_away == HOME_FIELD else AWAY_FIELD
   oppositeHomeOrAwayPositionField = AWAY_POSITION_FIELD if home_or_away == HOME_FIELD else HOME_POSITION_FIELD
@@ -78,12 +79,15 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_a
       teamStat.xG = (previous_stats[home_or_away+"."+positionGroup+".xG"]+(teamStat.xG*38))/(GW+1)
     except:
       teamStat.xG = teamStat.xG
-    db.team_stats.update_one({"team":teamStat.team,"GW":GW},{"$set":{"team":teamStat.team,home_or_away+"."+positionGroup+".xG":teamStat.xG,home_or_away+"."+positionGroup+".G":match["G"]}},True)
+    db.team_stats.update_one({"team":teamStat.team,"predicted_GW":GW,"model_version":model_version},{"$set":{"team":teamStat.team,home_or_away+"."+positionGroup+".xG":teamStat.xG,home_or_away+"."+positionGroup+".G":match["G"]}},True)
     
 
 def updatePoints(homeOrAway):
     id = "$" + homeOrAway
     points = "$Points " + homeOrAway
+    goals = "$"+homeOrAway+" goals"
+    oppositeHomeOrAway = AWAY_FIELD if homeOrAway == HOME_FIELD else AWAY_FIELD
+    goalsAgainst = "$"+oppositeHomeOrAway+" goals"
     pointsSearch = [
       {
         '$match': {
@@ -96,25 +100,32 @@ def updatePoints(homeOrAway):
           '_id': id,
           'points': {
             '$sum': points
+          },
+          'goals': {
+            '$sum': goals
+          },
+          'goalsAgainst': {
+            '$sum': goalsAgainst
           }
         }
       }
     ]
     matches = db.matches.aggregate(pointsSearch)
     for match in matches:
+        gd = match["goals"]-match["goalsAgainst"]
         print(match)
-        db.predicted_points.update_one({"team":match["_id"]},{"$set":{"team":match["_id"],homeOrAway+"."+ACTUAL:match["points"]}},True)
+        db.predicted_points.update_one({"predicted_GW":GW,"model_version":MODEL_VERSION,"team":match["_id"]},{"$set":{"team":match["_id"],homeOrAway+"."+ACTUAL+".points":match["points"],homeOrAway+"."+ACTUAL+".goals":match["goals"],homeOrAway+"."+ACTUAL+".gd":gd}},True)
 
-def updatePositions(homeOrAway):
+def updatePositions(homeOrAway,gw=GW,predicted_gw=GW,model_version=MODEL_VERSION):
       
       points = "$Points "+homeOrAway
       goals = "$"+homeOrAway+" goals"
-      gw=GW
+      
       oppositeHomeOrAway = AWAY_FIELD if homeOrAway == HOME_FIELD else AWAY_FIELD
  
       goalsAgainst = "$"+oppositeHomeOrAway+" goals"
     #   console.log("insert for "+homeOrAwayPosition);
-      for gw in range(GW,0,-1):
+      for gw in range(gw,0,-1):
         
         pointsSearch =[
           {
@@ -151,13 +162,13 @@ def updatePositions(homeOrAway):
         for position in positions:
             i=i+1
             print("GW "+str(gw)+" team: "+position["_id"])
-            db.positions.update_one({"GW":gw},{"$set":{homeOrAway+".rank."+position["_id"]+".position":i,homeOrAway+".rank."+position["_id"]+".points":position["points"],homeOrAway+".rank."+position["_id"]+".goalsFor":position["goalsFor"],homeOrAway+".rank."+position["_id"]+".goalsAgainst":position["goalsAgainst"]}},True)
+            db.positions.update_one({"predicted_GW":predicted_gw,"model_version":model_version,"GW":gw},{"$set":{homeOrAway+".rank."+position["_id"]+".position":i,homeOrAway+".rank."+position["_id"]+".points":position["points"],homeOrAway+".rank."+position["_id"]+".goalsFor":position["goalsFor"],homeOrAway+".rank."+position["_id"]+".goalsAgainst":position["goalsAgainst"]}},True)
 
-def updatePositionsForSingleGW(GW,homeOrAway):
-      pprint("In updatePositionsForSingleGW(%s,%s)"%(GW,homeOrAway))
+def updatePositionsForSingleGW(homeOrAway,gw=GW,model_version=MODEL_VERSION):
+      pprint("In updatePositionsForSingleGW(%s,%s)"%(gw,homeOrAway))
       points = "$Points "+homeOrAway
       goals = "$"+homeOrAway+" goals"
-      gw=GW
+   
       oppositeHomeOrAway = AWAY_FIELD if homeOrAway == HOME_FIELD else AWAY_FIELD
  
       goalsAgainst = "$"+oppositeHomeOrAway+" goals"
@@ -168,7 +179,7 @@ def updatePositionsForSingleGW(GW,homeOrAway):
           '$match': {
             'GW':{
               "$lte":gw
-            } 
+            }
           }
         }, {
           '$group': {
@@ -198,20 +209,21 @@ def updatePositionsForSingleGW(GW,homeOrAway):
       for position in positions:
           i=i+1
           print("GW "+str(gw)+" team: "+position["_id"])
-          db.positions.update_one({"GW":gw},{"$set":{homeOrAway+".rank."+position["_id"]+".position":i,homeOrAway+".rank."+position["_id"]+".points":position["points"],homeOrAway+".rank."+position["_id"]+".goalsFor":position["goalsFor"],homeOrAway+".rank."+position["_id"]+".goalsAgainst":position["goalsAgainst"]}},True)
+          db.positions.update_one({"predicted_GW":GW,"model_version":model_version,"GW":gw},{"$set":{homeOrAway+".rank."+position["_id"]+".position":i,homeOrAway+".rank."+position["_id"]+".points":position["points"],homeOrAway+".rank."+position["_id"]+".goalsFor":position["goalsFor"],homeOrAway+".rank."+position["_id"]+".goalsAgainst":position["goalsAgainst"]}},True)
 
 
-def updateMatchPosition(gw):
+def updateMatchPosition(gw=GW,predicted_gw=GW,model_version=MODEL_VERSION):
   
-
+  pprint("In updateMatchPosition(%s,%s,%s)"%(gw,predicted_gw,model_version))
   matches = db.matches.find({"GW":gw})
-  gwpositions = db.positions.find_one({"GW":gw})
+
+  gwpositions = db.positions.find_one({"GW":gw,"predicted_GW":predicted_gw,'model_version':model_version})
+  
   for match in matches:
-    
     hometeamposition = gwpositions["Home"]["rank"][match[HOME_FIELD]]["position"]
     awayteamposition = gwpositions["Away"]["rank"][match[AWAY_FIELD]]["position"]
 
-    db.matches.update_one({HOME_FIELD:match[HOME_FIELD],AWAY_FIELD:match[AWAY_FIELD],"GW":gw},{"$set":{HOME_POSITION_FIELD:hometeamposition,AWAY_POSITION_FIELD:awayteamposition}})
+    db.matches.update_one({HOME_FIELD:match[HOME_FIELD],AWAY_FIELD:match[AWAY_FIELD],"GW":gw,'model_version':model_version},{"$set":{HOME_POSITION_FIELD:hometeamposition,AWAY_POSITION_FIELD:awayteamposition}})
 
 def setup():
     
@@ -256,7 +268,7 @@ def setup():
     simulateMatches()
     print("---completed  simulate_matches in %s seconds ---" % (time.time() - start_time))
 
-def simulateMatches():
+def simulateMatches(model_version=MODEL_VERSION):
     print("In simulated matches")
     matchesSearch = [
       {
@@ -283,8 +295,8 @@ def simulateMatches():
         if(match["GW"]!=nextGW):
           pprint("Gameweek should be different %s %s"%(match["GW"],nextGW))
           nextGW = match["GW"]
-          updatePositionsForSingleGW(match["GW"],HOME_FIELD)
-          updatePositionsForSingleGW(match["GW"],AWAY_FIELD)
+          updatePositionsForSingleGW(HOME_FIELD,match["GW"])
+          updatePositionsForSingleGW(AWAY_FIELD,match["GW"])
           updateMatchPosition(match["GW"])
           
         gameWeekPositions = db.positions.find_one({'GW':nextGW}) 
@@ -292,14 +304,14 @@ def simulateMatches():
         awayTeamPosition = gameWeekPositions[AWAY_FIELD]["rank"][match[AWAY_FIELD]]["position"]
         pprint("Simulating match %s (%s) vs %s (%s)"%(match[HOME_FIELD],homeTeamPosition,match[AWAY_FIELD],awayTeamPosition))
 
-        homexGByLocAndPosition = db.team_stats.find_one({'team':match[HOME_FIELD],"GW":GW})
+        homexGByLocAndPosition = db.team_stats.find_one({'team':match[HOME_FIELD],"predicted_GW":GW})
         try:
          homexG = round((homexGByLocAndPosition[HOME_FIELD][getGroup(awayTeamPosition)]["xG"])*2)/2
         except KeyError:
             homexG = round((homexGByLocAndPosition[HOME_FIELD][getGroup(awayTeamPosition,True)]["xG"])*2)/2
 
 
-        awayxGByLocAndPosition = db.team_stats.find_one({'team':match[AWAY_FIELD]})
+        awayxGByLocAndPosition = db.team_stats.find_one({'team':match[AWAY_FIELD],"predicted_GW":GW})
         try:
             awayxG = round((awayxGByLocAndPosition[AWAY_FIELD][getGroup(homeTeamPosition)]["xG"])*2)/2
         except KeyError:
@@ -312,26 +324,39 @@ def simulateMatches():
         elif awayxG>homexG:
             homePoints=0
             awayPoints=3
-        
-        db.simulated_matches.update_one({"Home":match[HOME_FIELD],"Away":match[AWAY_FIELD]},{"$set":{HOME_POINTS_FIELD:homePoints,AWAY_POINTS_FIELD:awayPoints}},True)
-        db.predicted_points.update_one({"team":match[HOME_FIELD]},{"$inc":{"Home."+PREDICTED:homePoints}},True)
-        db.predicted_points.update_one({"team":match[AWAY_FIELD]},{"$inc":{"Away."+PREDICTED:awayPoints}},True)
+        homegd = homexG-awayxG
+        awaygd = awayxG-homexG
+        db.simulated_matches.update_one({"Home":match[HOME_FIELD],"Away":match[AWAY_FIELD],"predicted_GW":GW,"model_version":model_version},{"$set":{HOME_POINTS_FIELD:homePoints,AWAY_POINTS_FIELD:awayPoints,HOME_XG_FIELD:homexG,AWAY_XG_FIELD:awayxG}},True)
+        db.predicted_points.update_one({"predicted_GW":GW,"model_version":model_version,"team":match[HOME_FIELD]},{"$inc":{"Home."+PREDICTED+".points":homePoints,"Home."+PREDICTED+".goals":homexG,"Home."+PREDICTED+".gd":homegd}},True)
+        db.predicted_points.update_one({"predicted_GW":GW,"model_version":model_version,"team":match[AWAY_FIELD]},{"$inc":{"Away."+PREDICTED+".points":awayPoints,"Away."+PREDICTED+".goals":awayxG,"Away."+PREDICTED+".gd":awaygd}},True)
 
-def prediction():
+def prediction(model_version=MODEL_VERSION):
     pointsSearch = [
         {
             '$project': {
                 'team': '$team', 
                 'points': {
                     '$add': [
-                        '$Home.Actual', '$Away.Actual', '$Home.Predicted', '$Away.Predicted'
+                        '$Home.Actual.points', '$Away.Actual.points', '$Home.Predicted.points', '$Away.Predicted.points'
+                    ]
+                },
+                'gd': {
+                    '$add': [
+                        '$Home.Actual.gd', '$Away.Actual.gd', '$Home.Predicted.gd', '$Away.Predicted.gd'
+                    ]
+                },
+                'goals': {
+                    '$add': [
+                        '$Home.Actual.goals', '$Away.Actual.goals', '$Home.Predicted.goals', '$Away.Predicted.goals'
                     ]
                 }
             }
         },
         {
             '$sort': {
-                'points': -1
+                'points': -1,
+                'gd':-1,
+                'goals':-1
             }
         }
     ]
@@ -339,83 +364,8 @@ def prediction():
     points= db.predicted_points.aggregate(pointsSearch)
     i = 1
     for point in points:
-        db.prediction.update_one({"date":str(date.today()),"team":point["team"]},{"$set":{"position":i,"points":point["points"]}},True)
-        i=i+1
-        
-
-
-def trueActualResult(homeOrAway):
-
-  id = "$" + homeOrAway
-  points = "$Points " + homeOrAway
-  pointsSearch = [
-    {
-      '$group': {
-        '_id': id,
-        'points': {
-          '$sum': points
-        }
-      }
-    },
-        {
-            '$sort': {
-                'points': -1
-            }
-        }
-  ]
-  matches = db.matches.aggregate(pointsSearch)
-
-  for match in matches:
-      db.actualResult.update_one({"team":match["_id"]},{"$inc":{"points":match["points"]}},True)
-      
-
-def runResults():
-  trueActualResult(HOME_FIELD)
-  trueActualResult(AWAY_FIELD)
-  
-  pointsSearch = [
-   
-        {
-            '$sort': {
-                'points': -1
-            }
-        }
-  ]
-  results = db.actualResult.aggregate(pointsSearch)
-  i=1
-  for result in results:
-      db.actualResult.update_one({"team":result["team"]},{"$set":{"position":i}},True)
-      i=i+1
-
-def comparison(date):
-  predictions = db.prediction.find({"date":str(date)}).sort("position",1)
-  correct = 0
-  within_one = 0
-
-  points_correct=0
-  points_within_5=0
-  points_within_10=0
-  print("|**Team**|**Predicted Position**|**Actual Position**|**Difference**|**Predicted Points**|**Actual Points**|**Difference**|")
-  print("|-------------------|------------|------------|--------------|--------------|----------|-----------|")
-    
-  for prediction in predictions:
-    team = db.actualResult.find_one({"team":prediction["team"]})
-    print("|"+prediction["team"]+"|"+str(prediction["position"])+"|"+str(team["position"])+"|"+str(prediction["position"]-team["position"])+"|"+str(prediction["points"])+"|"+str(team["points"])+"|"+str(prediction["points"]-team["points"])+"|")
-    # print("|-------------------|------------|------------|--------------|--------------|----------|-----------|")
-    correct = correct+1 if team["position"]==prediction["position"] else correct
-    within_one = within_one+1 if (team["position"]-prediction["position"]==1) else within_one
-    within_one = within_one+1 if (team["position"]-prediction["position"]==-1) else within_one
-  
-    points_correct = points_correct+1 if team["points"]==prediction["points"] else points_correct
-    points_within_5 = points_within_5+1 if (team["points"]-prediction["points"]<5 & team["points"]-prediction["points"]>-5) else points_within_5
-    points_within_10 = points_within_10+1 if (team["points"]-prediction["points"]<10 & team["points"]-prediction["points"]>-10) else points_within_10
-
-  pprint("How many correct "+str(correct))
-  pprint("How many within one "+str(within_one))
-
-  pprint("How many points predicted correctly "+str(points_correct))
-  pprint("How many predicted within 5 points "+str(points_within_5))
-  pprint("How many predicted within 10 points "+str(points_within_10))
+        db.prediction.update_one({"predicted_GW":GW,"team":point["team"],"model_version":model_version},{"$set":{"position":i,"points":point["points"],"gf":point["goals"],"gd":point["gd"],"date":str(date.today())}},True)
+        i=i+1       
 
 def getGroup(num,wider=False):
     group = ""
@@ -437,8 +387,6 @@ def getGroup(num,wider=False):
 
 setup() 
 prediction()
-runResults()
 
-comparison(date(2022,8,7))
 
 
