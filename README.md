@@ -48,30 +48,30 @@ That's about all I can think of for now. Most focus will be on improving the mod
 ## How well it works
 After the half way stage, the model will predict 6/7 correctly with a further 5-8 within one space. 
 
-As an example, how the model would have predicted 21/22 after 19 games as it stands (changea are afoot):
+As an example, how the model would have predicted 21/22 after 19 games as it stands (changes are afoot):
 
 |**Team**|**Predicted Position**|**Actual Position**|**Difference**|**Predicted Points**|**Actual Points**|**Difference**|
 |-------------------|------------|------------|--------------|--------------|----------|-----------|
 |Manchester City|1|1|0|104|93|11|
-|Liverpool|2|2|0|94|92|2|
-|Chelsea|3|3|0|81|74|7|
-|Tottenham Hotspur|4|4|0|69|71|-2|
-|Manchester United|5|6|-1|69|58|11|
-|Arsenal|6|5|1|68|69|-1|
-|West Ham United|7|7|0|62|56|6|
-|Leicester City|8|8|0|49|52|-3|
+|Liverpool|2|2|0|91|92|-1|
+|Chelsea|3|3|0|75|74|1|
+|Tottenham Hotspur|4|4|0|70|71|-1|
+|Arsenal|5|5|0|69|69|0|
+|Manchester United|6|6|0|68|58|10|
+|West Ham United|7|7|0|66|56|10|
+|Leicester City|8|8|0|51|52|-1|
 |Wolverhampton Wanderers|9|9|0|48|51|-3|
-|Leeds United|10|17|-7|44|38|6|
+|Aston Villa|10|14|-4|47|45|2|
 |Crystal Palace|11|12|-1|43|48|-5|
-|Aston Villa|12|14|-2|42|45|-3|
-|Southampton|13|15|-2|42|40|2|
-|Brighton & Hove Albion|14|10|4|40|51|-11|
-|Watford|15|19|-4|40|23|17|
-|Everton|16|16|0|38|39|-1|
-|Burnley|17|18|-1|32|35|-3|
+|Southampton|12|15|-3|43|40|3|
+|Brighton & Hove Albion|13|10|3|42|51|-9|
+|Everton|14|16|-2|38|39|-1|
+|Watford|15|19|-4|36|23|13|
+|Burnley|16|18|-2|31|35|-4|
+|Leeds United|17|17|0|31|38|-7|
 |Brentford|18|13|5|29|46|-17|
 |Newcastle United|19|11|8|26|49|-23|
-|Norwich City|20|20|0|25|22|3|
+|Norwich City|20|20|0|26|22|4|
 
 
 ## Enhancements to the code

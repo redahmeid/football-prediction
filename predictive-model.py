@@ -14,7 +14,7 @@ db=client[os.environ["DB"]]
 previous_db=client[os.environ["PREVIOUS_SEASON"]]
 
 GW = int(os.environ["GW"])
-MODEL_VERSION="0.0.1"
+MODEL_VERSION="0.0.2"
 HOME_XG_FIELD = "Home xG"
 HOME_G_FIELD = "Home goals"
 AWAY_G_FIELD = "Away goals"
@@ -80,10 +80,10 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_a
     
     weighting = 38-predicted_GW
 
-    try:
-      teamStat.xG = ((previous_stat[home_or_away][positionGroup]["xG"]*weighting)+(teamStat.xG))/(predicted_GW+weighting)
-    except:
-      teamStat.xG = teamStat.xG
+    # try:
+    #   teamStat.xG = ((previous_stat[home_or_away][positionGroup]["xG"]*weighting)+(teamStat.xG))/(predicted_GW+weighting)
+    # except:
+    #   teamStat.xG = teamStat.xG
 
     db.team_stats.update_one({"team":teamStat.team,"predicted_GW":predicted_GW,"model_version":model_version},{"$set":{"team":teamStat.team,home_or_away+"."+positionGroup+".xG":teamStat.xG,home_or_away+"."+positionGroup+".G":match["G"]}},True)
     
@@ -386,34 +386,37 @@ def simulateMatches(model_version=MODEL_VERSION):
 
 def prediction(model_version=MODEL_VERSION):
     pointsSearch = [
-        {
-            '$project': {
-                'team': '$team', 
-                'points': {
-                    '$sum': [
-                        '$Home.Actual.points', '$Away.Actual.points', '$Home.Predicted.points', '$Away.Predicted.points'
-                    ]
-                },
-                'gd': {
-                    '$sum': [
-                        '$Home.Actual.gd', '$Away.Actual.gd', '$Home.Predicted.gd', '$Away.Predicted.gd'
-                    ]
-                },
-                'goals': {
-                    '$sum': [
-                        '$Home.Actual.goals', '$Away.Actual.goals', '$Home.Predicted.goals', '$Away.Predicted.goals'
-                    ]
-                }
-            }
-        },
-        {
-            '$sort': {
-                'points': -1,
-                'gd':-1,
-                'goals':-1
+    {
+        '$match': {
+            'model_version': model_version
+        }
+    }, {
+        '$project': {
+            'team': '$team', 
+            'points': {
+                '$sum': [
+                    '$Home.Actual.points', '$Away.Actual.points', '$Home.Predicted.points', '$Away.Predicted.points'
+                ]
+            }, 
+            'gd': {
+                '$sum': [
+                    '$Home.Actual.gd', '$Away.Actual.gd', '$Home.Predicted.gd', '$Away.Predicted.gd'
+                ]
+            }, 
+            'goals': {
+                '$sum': [
+                    '$Home.Actual.goals', '$Away.Actual.goals', '$Home.Predicted.goals', '$Away.Predicted.goals'
+                ]
             }
         }
-    ]
+    }, {
+        '$sort': {
+            'points': -1, 
+            'gd': -1, 
+            'goals': -1
+        }
+    }
+]
 
     points= db.predicted_points.aggregate(pointsSearch)
     i = 1
