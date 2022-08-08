@@ -417,7 +417,7 @@ def prediction(model_version=MODEL_VERSION):
 
     points= db.predicted_points.aggregate(pointsSearch)
     i = 1
-    print("|**Team**|**Predicted Position**|**Predicted Points**|**Predicted Goals For**|**Predicted Goals Against**")
+    print("|**Team**|**Predicted Position**|**Predicted Points**|**Predicted Goals For**|**Predicted Goal Difference**")
     print("|-------------------|------------|------------|--------------|--------------|")
     
     for point in points:

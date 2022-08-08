@@ -88,7 +88,7 @@ def comparison(gw=GW,model_version=MODEL_VERSION):
   for prediction in predictions:
     # print("What was the prediction %s ",prediction)
     team = db.actualResult.find_one({"team":prediction["team"]})
-    # print("|"+prediction["team"]+"|"+str(prediction["position"])+"|"+str(team["position"])+"|"+str(prediction["position"]-team["position"])+"|"+str(prediction["points"])+"|"+str(team["points"])+"|"+str(prediction["points"]-team["points"])+"|")
+    print("|"+prediction["team"]+"|"+str(prediction["position"])+"|"+str(team["position"])+"|"+str(prediction["position"]-team["position"])+"|"+str(prediction["points"])+"|"+str(team["points"])+"|"+str(prediction["points"]-team["points"])+"|")
     # print("|-------------------|------------|------------|--------------|--------------|----------|-----------|")
     correct = correct+1 if team["position"]==prediction["position"] else correct
     within_one = within_one+1 if (team["position"]-prediction["position"]==1) else within_one
