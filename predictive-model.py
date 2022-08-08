@@ -37,7 +37,7 @@ class TeamStats:
     position_group= TeamStatsGroup()
     xG = 0
 
-def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_away_g,model_version=MODEL_VERSION):
+def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_away_g,model_version=MODEL_VERSION,predicted_GW=GW):
   pprint("In updatexG")
   oppositeHomeOrAway = AWAY_FIELD if home_or_away == HOME_FIELD else AWAY_FIELD
   oppositeHomeOrAwayPositionField = AWAY_POSITION_FIELD if home_or_away == HOME_FIELD else HOME_POSITION_FIELD
@@ -78,13 +78,14 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_a
     
     previous_stat = db.previous_team_stats.find_one({"team":teamStat.team})
     
+    weighting = 38-predicted_GW
 
     try:
-      teamStat.xG = (previous_stat[home_or_away][positionGroup]["xG"]+(teamStat.xG))/(GW+1)
+      teamStat.xG = ((previous_stat[home_or_away][positionGroup]["xG"]*weighting)+(teamStat.xG))/(predicted_GW+weighting)
     except:
       teamStat.xG = teamStat.xG
 
-    db.team_stats.update_one({"team":teamStat.team,"predicted_GW":GW,"model_version":model_version},{"$set":{"team":teamStat.team,home_or_away+"."+positionGroup+".xG":teamStat.xG,home_or_away+"."+positionGroup+".G":match["G"]}},True)
+    db.team_stats.update_one({"team":teamStat.team,"predicted_GW":predicted_GW,"model_version":model_version},{"$set":{"team":teamStat.team,home_or_away+"."+positionGroup+".xG":teamStat.xG,home_or_away+"."+positionGroup+".G":match["G"]}},True)
     
 def updatexGFromPreviousYear(model_version=MODEL_VERSION):
 
@@ -95,7 +96,7 @@ def updatexGFromPreviousYear(model_version=MODEL_VERSION):
     db.team_stats.update_one({"team":team_stat["team"],"predicted_GW":GW,"model_version":model_version},{"$set":{"Home":team_stat["Home"],"Away":team_stat["Away"]}},True)
 
 def updatexGOverride(predicted_GW=GW,model_version=MODEL_VERSION):
-  pprint("In updatexGOvveride")
+  pprint("In updatexGOverride")
   
   xGSearch = [
     {
@@ -417,7 +418,7 @@ def prediction(model_version=MODEL_VERSION):
     points= db.predicted_points.aggregate(pointsSearch)
     i = 1
     print("|**Team**|**Predicted Position**|**Predicted Points**|**Predicted Goals For**|**Predicted Goals Against**")
-    print("|-------------------|------------|------------|--------------|--------------|----------|-----------|")
+    print("|-------------------|------------|------------|--------------|--------------|")
     
     for point in points:
         
