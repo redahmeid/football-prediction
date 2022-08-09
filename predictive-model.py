@@ -4,6 +4,7 @@ from pprint import pprint
 import os
 import time
 import datetime
+import sys
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -14,7 +15,7 @@ db=client[os.environ["DB"]]
 previous_db=client[os.environ["PREVIOUS_SEASON"]]
 
 GW = int(os.environ["GW"])
-MODEL_VERSION="0.0.2"
+MODEL_VERSION=os.environ["MODEL_VERSION"]
 HOME_XG_FIELD = "Home xG"
 HOME_G_FIELD = "Home goals"
 AWAY_G_FIELD = "Away goals"
@@ -23,8 +24,8 @@ AWAY_XG_FIELD = "Away xG"
 AWAY_FIELD = "Away"
 HOME_POINTS_FIELD="Home points"
 AWAY_POINTS_FIELD="Away points"
-HOME_POSITION_FIELD="Home position"
-AWAY_POSITION_FIELD="Away position"
+HOME_POSITION_FIELD=MODEL_VERSION+".Home position"
+AWAY_POSITION_FIELD=MODEL_VERSION+".Away position"
 ACTUAL = "Actual"
 PREDICTED = "Predicted"
 
@@ -45,7 +46,8 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_a
     {
         '$match': {
             'GW': {
-                '$lte': GW
+                '$lte': GW,
+                '$gte': GW-10
             }
         }
     }, {
@@ -76,7 +78,7 @@ def updatexG(position_first,position_last,home_or_away,home_or_away_xg,home_or_a
 
     positionGroup=str(position_first)+"-"+str(position_last)
     
-    previous_stat = db.previous_team_stats.find_one({"team":teamStat.team})
+    previous_stat = db.previous_team_stats.find_one({"team":teamStat.team,"model_version":model_version})
     
     weighting = 38-predicted_GW
 
@@ -92,7 +94,7 @@ def updatexGFromPreviousYear(model_version=MODEL_VERSION):
   previous_stats = previous_db.team_stats.find({"predicted_GW":38})
   
   for team_stat in previous_stats:
-    db.previous_team_stats.update_one({"team":team_stat["team"]},{"$set":{"Home":team_stat["Home"],"Away":team_stat["Away"]}},True)
+    db.previous_team_stats.update_one({"team":team_stat["team"],"model_version":model_version},{"$set":{"Home":team_stat["Home"],"Away":team_stat["Away"]}},True)
     db.team_stats.update_one({"team":team_stat["team"],"predicted_GW":GW,"model_version":model_version},{"$set":{"Home":team_stat["Home"],"Away":team_stat["Away"]}},True)
 
 def updatexGOverride(predicted_GW=GW,model_version=MODEL_VERSION):
@@ -101,7 +103,8 @@ def updatexGOverride(predicted_GW=GW,model_version=MODEL_VERSION):
   xGSearch = [
     {
         '$match': {
-            'predicted_GW': predicted_GW
+            'predicted_GW': predicted_GW,
+            'model_version':model_version
         }
     }, {
         '$project': {
@@ -120,7 +123,7 @@ def updatexGOverride(predicted_GW=GW,model_version=MODEL_VERSION):
     db.team_stats.update_one({"team":stat["_id"],"predicted_GW":GW,"model_version":model_version},{"$set":{"override.xG":stat["xG"]}},True)
     
 
-def updatePoints(homeOrAway):
+def updatePoints(homeOrAway,model_version=MODEL_VERSION):
     id = "$" + homeOrAway
     points = "$Points " + homeOrAway
     goals = "$"+homeOrAway+" goals"
@@ -152,7 +155,7 @@ def updatePoints(homeOrAway):
     for match in matches:
         gd = match["goals"]-match["goalsAgainst"]
         print(match)
-        db.predicted_points.update_one({"predicted_GW":GW,"model_version":MODEL_VERSION,"team":match["_id"]},{"$set":{"team":match["_id"],homeOrAway+"."+ACTUAL+".points":match["points"],homeOrAway+"."+ACTUAL+".goals":match["goals"],homeOrAway+"."+ACTUAL+".gd":gd}},True)
+        db.predicted_points.update_one({"predicted_GW":GW,"model_version":model_version,"team":match["_id"]},{"$set":{"team":match["_id"],homeOrAway+"."+ACTUAL+".points":match["points"],homeOrAway+"."+ACTUAL+".goals":match["goals"],homeOrAway+"."+ACTUAL+".gd":gd}},True)
 
 def updatePositions(homeOrAway,gw=GW,predicted_gw=GW,model_version=MODEL_VERSION):
       
@@ -265,12 +268,7 @@ def updateMatchPosition(gw=GW,predicted_gw=GW,model_version=MODEL_VERSION):
 
 def setup():
     
-    # db.actualResult.drop()
-    # db.predicted_points.drop()
-    # db.prediction.drop()
-    # db.positions.drop()
-    # db.team_stats.drop()
-    # db.simulated_matches.drop()
+    
     start_time = time.time()
     updatePoints(HOME_FIELD)
     updatePoints(AWAY_FIELD)
@@ -298,11 +296,13 @@ def setup():
     updatexG(8,12,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
     updatexG(13,17,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
     updatexG(18,20,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
+
     updatexG(1,4,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
     updatexG(5,7,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
     updatexG(8,12,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
     updatexG(13,17,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
     updatexG(18,20,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
+
     updatexG(1,20,AWAY_FIELD,AWAY_XG_FIELD,AWAY_G_FIELD)
     updatexG(1,20,HOME_FIELD,HOME_XG_FIELD,HOME_G_FIELD)
     print("---completed  updatexG in %s seconds ---" % (time.time() - start_time))
@@ -344,31 +344,53 @@ def simulateMatches(model_version=MODEL_VERSION):
           updatePositionsForSingleGW(AWAY_FIELD,match["GW"])
           updateMatchPosition(match["GW"])
           
-        gameWeekPositions = db.positions.find_one({'GW':nextGW}) 
+        gameWeekPositions = db.positions.find_one({'GW':nextGW,"model_version":model_version}) 
         homeTeamPosition = gameWeekPositions[HOME_FIELD]["rank"][match[HOME_FIELD]]["position"]
         awayTeamPosition = gameWeekPositions[AWAY_FIELD]["rank"][match[AWAY_FIELD]]["position"]
         pprint("Simulating match %s (%s) vs %s (%s)"%(match[HOME_FIELD],homeTeamPosition,match[AWAY_FIELD],awayTeamPosition))
 
-        homexGByLocAndPosition = db.team_stats.find_one({'team':match[HOME_FIELD],"predicted_GW":GW})
+        homexGByLocAndPosition = db.team_stats.find_one({'team':match[HOME_FIELD],"predicted_GW":GW,"model_version":model_version})
         print("homexGByLocAndPosition "+str(homexGByLocAndPosition))
+        home_value_obj = db.club_values.find_one({"team":match[HOME_FIELD]})
+        
+        home_value = home_value_obj["value"]
+        away_value_obj = db.club_values.find_one({"team":match[AWAY_FIELD]})
+        away_value = away_value_obj["value"]
+
+        print("Home value %s vs %s Away value"%(home_value,away_value))
+        value_diff = (home_value-away_value)//10
+        
+        # homexGraw = homexGByLocAndPosition[HOME_FIELD]["1-20"]["xG"]
+
         try:
-         homexG = round((homexGByLocAndPosition[HOME_FIELD][getGroup(awayTeamPosition)]["xG"])*2)/2
+         homexGraw = homexGByLocAndPosition[HOME_FIELD][getGroup(awayTeamPosition)]["xG"]
+         
         except KeyError:
             
             try:
-              homexG = round((homexGByLocAndPosition[HOME_FIELD][getGroup(awayTeamPosition,True)]["xG"])*2)/2
+
+              homexGraw = homexGByLocAndPosition[HOME_FIELD][getGroup(awayTeamPosition,True)]["xG"]
             except:
-              homexG = round((homexGByLocAndPosition["override"]["xG"])*2)/2
-
-
-        awayxGByLocAndPosition = db.team_stats.find_one({'team':match[AWAY_FIELD],"predicted_GW":GW})
+              homexGraw = homexGByLocAndPosition["override"]["xG"]
+        print("Value Difference %s"%(value_diff))
+        print("Home xG before club value adjustment %s"%(homexGraw))
+        homexGraw = homexGraw+(value_diff*(((38-GW)*0.005)/38)) if(value_diff>0) else homexGraw
+        print("Home xG after club value adjustment %s"%(homexGraw))
+        homexG = round(homexGraw*2)/2
+        
+        awayxGByLocAndPosition = db.team_stats.find_one({'team':match[AWAY_FIELD],"predicted_GW":GW,"model_version":model_version})
+        awayxGraw = awayxGByLocAndPosition[AWAY_FIELD]["1-20"]["xG"]
         try:
-            awayxG = round((awayxGByLocAndPosition[AWAY_FIELD][getGroup(homeTeamPosition)]["xG"])*2)/2
+            awayxGraw = awayxGByLocAndPosition[AWAY_FIELD][getGroup(homeTeamPosition)]["xG"]
         except KeyError:
             try:
-              awayxG = round((awayxGByLocAndPosition[AWAY_FIELD][getGroup(homeTeamPosition,True)]["xG"])*2)/2
+              awayxGraw = awayxGByLocAndPosition[AWAY_FIELD][getGroup(homeTeamPosition,True)]["xG"]
             except:
-              awayxG = round((awayxGByLocAndPosition["override"]["xG"])*2)/2
+              awayxGraw = awayxGByLocAndPosition["override"]["xG"]
+        print("Away xG before club value adjustment %s"%(awayxGraw))
+        awayxGraw = awayxGraw+(value_diff*(((38-GW)*-0.005)/38)) if(value_diff<0) else awayxGraw
+        print("Away xG after club value adjustment %s"%(awayxGraw))
+        awayxG = round(awayxGraw*2)/2
 
         homePoints = 1
         awayPoints = 1
@@ -447,6 +469,16 @@ def getGroup(num,wider=False):
             group="18-20"
     return group
 
+if(len(sys.argv)>1 and sys.argv[1]=="drop_all"):
+  print("dropping all")
+  db.actualResult.drop()
+  db.predicted_points.drop()
+  db.prediction.drop()
+  db.positions.drop()
+  db.team_stats.drop()
+  db.simulated_matches.drop()
+  db.previous_team_stats.drop()
+  db.actualResult.drop()
 setup() 
 prediction()
 

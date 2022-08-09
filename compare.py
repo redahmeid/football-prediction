@@ -4,6 +4,7 @@ from pprint import pprint
 import os
 import time
 import datetime
+import sys
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -14,7 +15,7 @@ db=client[os.environ["DB"]]
 previous_db=client[os.environ["PREVIOUS_SEASON"]]
 
 GW = int(os.environ["GW"])
-MODEL_VERSION="0.0.1"
+MODEL_VERSION=os.environ["MODEL_VERSION"]
 HOME_XG_FIELD = "Home xG"
 HOME_G_FIELD = "Home goals"
 AWAY_G_FIELD = "Away goals"
@@ -30,7 +31,7 @@ PREDICTED = "Predicted"
 
 
 
-def trueActualResult(homeOrAway):
+def trueActualResult(homeOrAway,model_version=MODEL_VERSION):
 
   id = "$" + homeOrAway
   points = "$Points " + homeOrAway
@@ -52,10 +53,10 @@ def trueActualResult(homeOrAway):
   matches = db.matches.aggregate(pointsSearch)
 
   for match in matches:
-      db.actualResult.update_one({"team":match["_id"]},{"$inc":{"points":match["points"]}},True)
+      db.actualResult.update_one({"team":match["_id"],"model_version":model_version},{"$inc":{"points":match["points"]}},True)
       
 
-def runResults():
+def runResults(model_version=MODEL_VERSION):
   trueActualResult(HOME_FIELD)
   trueActualResult(AWAY_FIELD)
   
@@ -70,7 +71,7 @@ def runResults():
   results = db.actualResult.aggregate(pointsSearch)
   i=1
   for result in results:
-      db.actualResult.update_one({"team":result["team"]},{"$set":{"position":i}},True)
+      db.actualResult.update_one({"team":result["team"],"model_version":model_version},{"$set":{"position":i}},True)
       i=i+1
 
 def comparison(gw=GW,model_version=MODEL_VERSION):
@@ -87,7 +88,7 @@ def comparison(gw=GW,model_version=MODEL_VERSION):
     
   for prediction in predictions:
     # print("What was the prediction %s ",prediction)
-    team = db.actualResult.find_one({"team":prediction["team"]})
+    team = db.actualResult.find_one({"team":prediction["team"],"model_version":model_version})
     print("|"+prediction["team"]+"|"+str(prediction["position"])+"|"+str(team["position"])+"|"+str(prediction["position"]-team["position"])+"|"+str(prediction["points"])+"|"+str(team["points"])+"|"+str(prediction["points"]-team["points"])+"|")
     # print("|-------------------|------------|------------|--------------|--------------|----------|-----------|")
     correct = correct+1 if team["position"]==prediction["position"] else correct
@@ -95,8 +96,8 @@ def comparison(gw=GW,model_version=MODEL_VERSION):
     within_one = within_one+1 if (team["position"]-prediction["position"]==-1) else within_one
   
     points_correct = points_correct+1 if team["points"]==prediction["points"] else points_correct
-    points_within_5 = points_within_5+1 if (team["points"]-prediction["points"]<5 & team["points"]-prediction["points"]>-5) else points_within_5
-    points_within_10 = points_within_10+1 if (team["points"]-prediction["points"]<10 & team["points"]-prediction["points"]>-10) else points_within_10
+    points_within_5 = points_within_5+1 if (team["points"]-prediction["points"]<5 and team["points"]-prediction["points"]>-5) else points_within_5
+    points_within_10 = points_within_10+1 if (team["points"]-prediction["points"]<10 and team["points"]-prediction["points"]>-10) else points_within_10
 
   pprint("How many correct "+str(correct))
   pprint("How many within one "+str(within_one))
@@ -105,6 +106,9 @@ def comparison(gw=GW,model_version=MODEL_VERSION):
   pprint("How many predicted within 5 points "+str(points_within_5))
   pprint("How many predicted within 10 points "+str(points_within_10))
 
+if(len(sys.argv)>1 and sys.argv[1]=="drop_all"):
+  print("dropping all")
+  db.actualResult.drop()
 
 runResults()
 
