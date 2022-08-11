@@ -379,7 +379,7 @@ def simulateMatches(model_version=MODEL_VERSION):
         homexG = round(homexGraw*2)/2
         
         awayxGByLocAndPosition = db.team_stats.find_one({'team':match[AWAY_FIELD],"predicted_GW":GW,"model_version":model_version})
-        awayxGraw = awayxGByLocAndPosition[AWAY_FIELD]["1-20"]["xG"]
+        # awayxGraw = awayxGByLocAndPosition[AWAY_FIELD]["1-20"]["xG"]
         try:
             awayxGraw = awayxGByLocAndPosition[AWAY_FIELD][getGroup(homeTeamPosition)]["xG"]
         except KeyError:
@@ -471,14 +471,14 @@ def getGroup(num,wider=False):
 
 if(len(sys.argv)>1 and sys.argv[1]=="drop_all"):
   print("dropping all")
-  db.actualResult.drop()
-  db.predicted_points.drop()
-  db.prediction.drop()
-  db.positions.drop()
-  db.team_stats.drop()
-  db.simulated_matches.drop()
-  db.previous_team_stats.drop()
-  db.actualResult.drop()
+  db.actualResult.delete_many({"model_version":MODEL_VERSION})
+  db.predicted_points.delete_many({"model_version":MODEL_VERSION})
+  db.prediction.delete_many({"model_version":MODEL_VERSION})
+  db.positions.delete_many({"model_version":MODEL_VERSION})
+  db.team_stats.delete_many({"model_version":MODEL_VERSION})
+  db.simulated_matches.delete_many({"model_version":MODEL_VERSION})
+  db.previous_team_stats.delete_many({"model_version":MODEL_VERSION})
+  db.actualResult.delete_many({"model_version":MODEL_VERSION})
 setup() 
 prediction()
 
