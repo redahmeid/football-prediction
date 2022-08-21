@@ -12,7 +12,8 @@ load_dotenv()
 from datetime import date
 # connect to MongoDB, change the << MONGODB URL >> to reflect your own connection string
 client = MongoClient(os.environ["MONGO_URL"])
-db=client[os.environ["DB"]]
+db=client[os.environ["MATCH_ANALYSIS_DB"]]
+# analysis_db=client[os.environ["MATCH_ANALYSIS_DB"]]
 previous_db=client[os.environ["PREVIOUS_SEASON"]]
 
 GW = int(os.environ["GW"])
@@ -55,7 +56,7 @@ PREDICTED = "Predicted"
 
 
 # From the match stats work out how many points have been gain so far
-def updateWeeklyResults(model_version=MODEL_VERSION,gw=GW):
+def updateWeeklyResults(gw=GW,model_version=MODEL_VERSION):
     
     pointsSearch = [
       {
@@ -711,15 +712,20 @@ if(len(sys.argv)>1 and sys.argv[1]=="drop_all"):
 
 if(len(sys.argv)>1 and sys.argv[1]=="update_stats"):
   start_time = time.time()
-  updateWeeklyResults()
-  for gw in range(GW,0,-1):
+  start_gw = GW
+  
+  if(len(sys.argv)>2):
+    start_gw = int(sys.argv[2])
+  print(start_gw)
+  updateWeeklyResults(start_gw)
+  for gw in range(1,start_gw,1):
     updateWeeklyPositions(gw)
     updateWeeklyXPositions(gw)
 
-  for gw in range(GW,0,-1):
+  for gw in range(1,start_gw,1):
     updateWeeklyOpponentPosition(gw)
 
-  for gw in range(GW,0,-1):
+  for gw in range(1,start_gw,1):
     updateAverageStatsByGroup(gw)
   # updateWeightedVenueAverageStats()
   # updateWeightedGroupAverageStats()
@@ -732,7 +738,7 @@ if(len(sys.argv)>1 and sys.argv[1]=="simulate"):
   start_time = time.time()
   print("simulating....")
   for gw in range(start_gw+1,39,1):
-    simulateMatch(start_gw)
+    simulateMatch(gw)
     updateWeeklyPositions(gw)
     updateWeeklyXPositions(gw)
     updateWeeklyOpponentPosition(gw)
@@ -745,8 +751,12 @@ if(len(sys.argv)>1 and sys.argv[1]=="predict"):
   print("---completed  predicting in %s seconds ---" % (time.time() - start_time))
 
 if(len(sys.argv)>1 and sys.argv[1]=="weighted"):
-  gw = GW
+  print("In here")
+  start_gw = GW
   if(len(sys.argv)>2):
-    gw = int(sys.argv[2])
-  updateWeightedVenueAverageStats(gw)
-  updateWeightedGroupAverageStats(gw)
+    start_gw = int(sys.argv[2])
+  print(start_gw)
+  for gw in range(1,start_gw,1):
+    print("In here")
+    updateWeightedVenueAverageStats(gw)
+    updateWeightedGroupAverageStats(gw)
