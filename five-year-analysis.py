@@ -8,6 +8,7 @@ import sys
 import numpy as np
 import math
 from statistics import mode
+import pandas as pd
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -272,18 +273,32 @@ def simulate_matches():
         for home_weekly_stat in home_weekly_stats:
             home_average_xg = home_weekly_stat[HOME_AVERAGE_XG_FIELD]
             home_xg_std = home_weekly_stat[HOME_STD_XG_FIELD]
+            home_average_g = home_weekly_stat[HOME_AVERAGE_G_FIELD]
+            home_g_std = home_weekly_stat[HOME_STD_G_FIELD]
         for away_weekly_stat in away_weekly_stats:
             away_average_xg = away_weekly_stat[AWAY_AVERAGE_XG_FIELD]
             away_xg_std = away_weekly_stat[AWAY_STD_XG_FIELD]
+            away_average_g = away_weekly_stat[AWAY_AVERAGE_G_FIELD]
+            away_g_std = away_weekly_stat[AWAY_STD_G_FIELD]
+        
+
         home_points_list = []
         away_points_list = []
-        for i in range(0,20000,1):
-            sim_home_xg = round(np.random.wald(home_average_xg,home_xg_std))
-            sim_away_xg = round(np.random.wald(away_average_xg,away_xg_std))
-            if sim_home_xg>sim_away_xg:
+        home_club = db.club_values.find_one({TEAM_FIELD:match[HOME_FIELD]})
+        away_club = db.club_values.find_one({TEAM_FIELD:match[AWAY_FIELD]})
+        home_regression = db.regression.find_one({TEAM_FIELD:match[HOME_FIELD]})
+        away_regression = db.regression.find_one({TEAM_FIELD:match[AWAY_FIELD]})
+        home_value = home_club["value"]//10
+        away_value = away_club["value"]//10
+        for i in range(0,100000,1):
+            sim_home_xg = np.random.normal(home_average_xg,home_xg_std)
+            home_goals = home_regression["alpha"] + home_regression["beta"]*sim_home_xg
+            sim_away_xg = np.random.normal(away_average_xg,away_xg_std)
+            away_goals = away_regression["alpha"] + away_regression["beta"]*sim_away_xg
+            if home_goals>away_goals:
                 home_points = 3
                 away_points = 0
-            elif sim_away_xg>sim_home_xg:
+            elif away_goals>home_goals:
                 home_points=0
                 away_points=3
             else:
@@ -315,9 +330,40 @@ def simulate_matches():
         }
 
         db.simulated_results.update_one(simulated_query,{"$set":simulated_result},True)
-        
+
     print("Total Matches simulated: %s"%(total_matches))
     print("Correct results simulated: %s"%(correct_results))
+
+def analysis():
+    teams = db.club_values.find()
+    for team in teams:
+        print(team)
+        team_stats = db.weekly_stats.find({TEAM_FIELD:team["team"]})
+        xg_array = []
+        g_array = []
+        for stats in team_stats:
+            xg_array.append(stats[XG_FIELD])
+            g_array.append(stats[GOALS_FIELD])    
+
+        df = pd.DataFrame(
+            {
+                'X':xg_array,
+                'y':g_array
+            }
+        )
+
+        xmean = np.mean(xg_array)
+        ymean = np.mean(g_array)
+
+        df['xycov'] = (df['X'] - xmean) * (df['y'] - ymean)
+        df['xvar'] = (df['X'] - xmean)**2
+
+        beta = df['xycov'].sum() / df['xvar'].sum()
+        alpha = ymean - (beta * xmean)
+        print(f'alpha = {alpha}')
+        print(f'beta = {beta}')
+
+        db.regression.update_one({TEAM_FIELD:team["team"]},{"$set":{"beta":beta,"alpha":alpha}},True)
 
 if(len(sys.argv)>1 and sys.argv[1]=="create_stats"):
     start_time = time.time()
@@ -341,3 +387,8 @@ if(len(sys.argv)>1 and sys.argv[1]=="simulate"):
     start_time = time.time()
     simulate_matches()
     print("---completed simulate_matches in %s seconds ---" % (time.time() - start_time))
+
+if(len(sys.argv)>1 and sys.argv[1]=="analysis"):
+    start_time = time.time()
+    analysis()
+    print("---completed analysis in %s seconds ---" % (time.time() - start_time))
