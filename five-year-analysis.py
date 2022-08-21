@@ -7,6 +7,7 @@ import datetime
 import sys
 import numpy as np
 import math
+from statistics import mode
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -270,34 +271,51 @@ def simulate_matches():
 
         for home_weekly_stat in home_weekly_stats:
             home_average_xg = home_weekly_stat[HOME_AVERAGE_XG_FIELD]
+            home_xg_std = home_weekly_stat[HOME_STD_XG_FIELD]
         for away_weekly_stat in away_weekly_stats:
             away_average_xg = away_weekly_stat[AWAY_AVERAGE_XG_FIELD]
-
-        if home_average_xg>away_average_xg:
-            home_points = 3
-            away_points = 0
-        elif away_average_xg>home_average_xg:
-            home_points=0
-            away_points=3
-        else:
-            home_points=1
-            away_points=1
+            away_xg_std = away_weekly_stat[AWAY_STD_XG_FIELD]
+        home_points_list = []
+        away_points_list = []
+        for i in range(0,20000,1):
+            sim_home_xg = round(np.random.wald(home_average_xg,home_xg_std))
+            sim_away_xg = round(np.random.wald(away_average_xg,away_xg_std))
+            if sim_home_xg>sim_away_xg:
+                home_points = 3
+                away_points = 0
+            elif sim_away_xg>sim_home_xg:
+                home_points=0
+                away_points=3
+            else:
+                home_points=1
+                away_points=1
+            home_points_list.append(home_points)
+            away_points_list.append(away_points)
         
+        home_points = mode(home_points_list)
+        away_points = mode(away_points_list)
+
+        print("Mode home %s and away %s"%(home_points,away_points))
+
         if(home_points==actual_home_points):
             correct_results=correct_results+1
 
-        simulated_result ={
+        simulated_query ={
             HOME_FIELD:home_team,
             AWAY_FIELD:away_team,
             SEASON_FIELD:match[SEASON_FIELD],
             SEASON_GW_FIELD:match[SEASON_GW_FIELD],
             GW_FIELD:match[GW_FIELD],
-            HOME_POINTS_FIELD:home_points,
-            AWAY_POINTS_FIELD:away_points,
             SIMULATION_VERSION_FIELD:SIMULATION_VERSION
         }
 
-        db.simulated_results.insert_one(simulated_result)
+        simulated_result = {
+            HOME_POINTS_FIELD:home_points,
+            AWAY_POINTS_FIELD:away_points,
+        }
+
+        db.simulated_results.update_one(simulated_query,{"$set":simulated_result},True)
+        
     print("Total Matches simulated: %s"%(total_matches))
     print("Correct results simulated: %s"%(correct_results))
 
