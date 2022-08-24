@@ -8,6 +8,7 @@ import sys
 import numpy as np
 import math
 from statistics import mode
+from statistics import covariance
 import pandas as pd
 
 from dotenv import load_dotenv
@@ -36,10 +37,19 @@ HOME_FIELD = "home"
 AWAY_XG_FIELD = "away_xg"
 HOME_XP_FIELD="home_xp"
 AWAY_XP_FIELD="away_xp"
+HOME_POSSESSION_FIELD="home_possession"
+AWAY_POSSESSION_FIELD="away_possession"
+AVERAGE_POSSESSION_FIELD="average_possession"
+STD_POSSESSION_FIELD="std_possession"
+POSSESSION_FIELD="possession"
 AWAY_FIELD = "away"
 HOME_POINTS_FIELD="home_points"
 AWAY_POINTS_FIELD="away_points"
 POINTS_FIELD="points"
+ACTUAL_HOME_POINTS_FIELD="actual_home_points"
+ACTUAL_AWAY_POINTS_FIELD="actual_away_points"
+PREDICTED_HOME_POINTS_FIELD="predicted_home_points"
+PREDICTED_AWAY_POINTS_FIELD="predicted_away_points"
 GOALS_FIELD="goals"
 GOALS_AGAINST_FIELD="goals_against"
 GOAL_DIFFERENCE_FIELD="goal_difference"
@@ -74,7 +84,7 @@ MODEL_VERSION_FIELD="model_version"
 SIMULATION_VERSION_FIELD="simulation_version"
 HOME_POSITION_FIELD=MODEL_VERSION+".Home position"
 AWAY_POSITION_FIELD=MODEL_VERSION+".Away position"
-ACTUAL = "Actual"
+PREDICTED = "Actual"
 PREDICTED = "Predicted"
 SEASON_GW_FIELD="season_gw"
 
@@ -97,6 +107,7 @@ def weighted_average_xg_std(season=SEASON,gw=GW,model_version=MODEL_VERSION):
         for stat in stats:
             print("Team is: "+stat[TEAM_FIELD])
             xg_values.append(stat[XG_FIELD])
+        
             weights.append(WEIGHTINGS[stat[SEASON_FIELD]])
         
         if(len(xg_values)>0):
@@ -169,6 +180,50 @@ def weighted_average_g_std(season=SEASON,gw=GW,model_version=MODEL_VERSION):
 
         db.weekly_stats.update_one(team_query,{"$set":team_update},True)
 
+def weighted_average_possession_std(season=SEASON,gw=GW,model_version=MODEL_VERSION):
+
+    weekly_stats = db.weekly_stats.find({})
+    for team_stats in weekly_stats:
+        
+        query = {
+            TEAM_FIELD:team_stats[TEAM_FIELD],
+            SEASON_GW_FIELD:{"$lt":team_stats[SEASON_GW_FIELD]},
+            HOME_OR_AWAY_FIELD:team_stats[HOME_OR_AWAY_FIELD]
+        }
+        
+        stats = db.weekly_stats.find(query)
+        possession_values = []
+        weights = []
+        average = team_stats[XG_FIELD]
+        g_std = 0
+        for stat in stats:
+            print("Team is: "+stat[TEAM_FIELD])
+            possession_values.append(stat[POSSESSION_FIELD])
+            weights.append(WEIGHTINGS[stat[SEASON_FIELD]])
+        
+        if(len(possession_values)>0):
+            average = np.average(possession_values, weights=weights)
+            variance = np.average((possession_values-average)**2, weights=weights)
+            g_std = math.sqrt(variance)
+        
+        team_query = {
+            TEAM_FIELD:team_stats[TEAM_FIELD],
+            SEASON_GW_FIELD:team_stats[SEASON_GW_FIELD],
+            MODEL_VERSION_FIELD:team_stats[MODEL_VERSION_FIELD]
+        }
+        if(team_stats[HOME_OR_AWAY_FIELD]==HOME_FIELD):
+
+            team_update = {
+                AVERAGE_POSSESSION_FIELD:average,
+                STD_POSSESSION_FIELD:g_std
+            }
+        else:
+            team_update = {
+                AVERAGE_POSSESSION_FIELD:average,
+                STD_POSSESSION_FIELD:g_std
+            }
+
+        db.weekly_stats.update_one(team_query,{"$set":team_update},True)
 
 def create_match_stats():
     completed_matches = db.matches.find({"status":"complete"})
@@ -182,6 +237,8 @@ def create_match_stats():
         home_points = match[HOME_POINTS_FIELD]
         away_points = match[AWAY_POINTS_FIELD]
         gw = match[GW_FIELD]
+        home_possession=match[HOME_POSSESSION_FIELD]
+        away_possession=match[AWAY_POSSESSION_FIELD]
         season = match[SEASON_FIELD]
         season_gw = match[SEASON_GW_FIELD]
 
@@ -190,7 +247,8 @@ def create_match_stats():
             GOALS_FIELD:home_g,
             POINTS_FIELD:home_points,
             HOME_OR_AWAY_FIELD:"home",
-            OPPONENT_FIELD:away_team
+            OPPONENT_FIELD:away_team,
+            POSSESSION_FIELD:home_possession
         }
 
         away_update = {
@@ -198,7 +256,8 @@ def create_match_stats():
             GOALS_FIELD:away_g,
             POINTS_FIELD:away_points,
             HOME_OR_AWAY_FIELD:"away",
-            OPPONENT_FIELD:home_team
+            OPPONENT_FIELD:home_team,
+            POSSESSION_FIELD:away_possession
         }
 
         home_query={
@@ -224,12 +283,15 @@ def simulate_matches():
     remaining_matches = db.matches.find({SEASON_GW_FIELD:{"$gt":SEASON_GW},SEASON_FIELD:SEASON})
     total_matches = 0
     correct_results = 0
+    
     for match in remaining_matches:
         total_matches = total_matches+1
         home_team = match[HOME_FIELD]
         away_team = match[AWAY_FIELD]
         actual_home_points = match[HOME_POINTS_FIELD]
         actual_away_points = match[AWAY_POINTS_FIELD]
+        actual_home_possession = match[HOME_POSSESSION_FIELD]
+        actual_away_possession = match[AWAY_POSSESSION_FIELD]
         home_query=[
     {
         '$match': {
@@ -248,7 +310,7 @@ def simulate_matches():
     "$limit": 1
 }
 ]
-        print(home_query)
+        
         home_weekly_stats = db.weekly_stats.aggregate(home_query)
 
         away_query = [
@@ -275,13 +337,17 @@ def simulate_matches():
             home_xg_std = home_weekly_stat[HOME_STD_XG_FIELD]
             home_average_g = home_weekly_stat[HOME_AVERAGE_G_FIELD]
             home_g_std = home_weekly_stat[HOME_STD_G_FIELD]
+            home_average_possession=home_weekly_stat[AVERAGE_POSSESSION_FIELD]
+            home_std_possession=home_weekly_stat[STD_POSSESSION_FIELD]
         for away_weekly_stat in away_weekly_stats:
             away_average_xg = away_weekly_stat[AWAY_AVERAGE_XG_FIELD]
             away_xg_std = away_weekly_stat[AWAY_STD_XG_FIELD]
             away_average_g = away_weekly_stat[AWAY_AVERAGE_G_FIELD]
             away_g_std = away_weekly_stat[AWAY_STD_G_FIELD]
+            away_average_possession=away_weekly_stat[AVERAGE_POSSESSION_FIELD]
+            away_std_possession=away_weekly_stat[STD_POSSESSION_FIELD]
         
-
+        
         home_points_list = []
         away_points_list = []
         home_club = db.club_values.find_one({TEAM_FIELD:match[HOME_FIELD]})
@@ -290,11 +356,14 @@ def simulate_matches():
         away_regression = db.regression.find_one({TEAM_FIELD:match[AWAY_FIELD]})
         home_value = home_club["value"]//10
         away_value = away_club["value"]//10
+       
         for i in range(0,100000,1):
             sim_home_xg = np.random.normal(home_average_xg,home_xg_std)
-            home_goals = home_regression["alpha"] + home_regression["beta"]*sim_home_xg
+            home_goals = home_regression["beta"] + home_regression["alpha"]*sim_home_xg
+            sim_home_possession = np.random.normal(home_average_possession,home_std_possession)
             sim_away_xg = np.random.normal(away_average_xg,away_xg_std)
-            away_goals = away_regression["alpha"] + away_regression["beta"]*sim_away_xg
+            away_goals = away_regression["beta"] + away_regression["alpha"]*sim_away_xg
+            sim_away_possession = np.random.normal(away_average_possession,away_std_possession)
             if home_goals>away_goals:
                 home_points = 3
                 away_points = 0
@@ -307,13 +376,28 @@ def simulate_matches():
             home_points_list.append(home_points)
             away_points_list.append(away_points)
         
+        home_points_array = np.array(home_points_list)
+        home_counts_array = np.bincount(home_points_array)
+        away_points_array = np.array(away_points_list)
+        away_counts_array = np.bincount(away_points_array)
+
         home_points = mode(home_points_list)
+        
+
         away_points = mode(away_points_list)
-
-        print("Mode home %s and away %s"%(home_points,away_points))
-
+        
+            
+        
         if(home_points==actual_home_points):
             correct_results=correct_results+1
+        else:
+            print("HOME counts:%s"%home_counts_array)
+            print("Away counts:%s"%away_counts_array)
+            print("%s vs %s"%(home_team,away_team))
+            print("Predicted possession %s vs %s"%(sim_home_possession,sim_away_possession))
+            print("Actual possession %s vs %s"%(actual_home_possession,actual_away_possession))
+            print("Predicted %s vs %s"%(home_points,away_points))
+            print("Actual %s vs %s"%(actual_home_points,actual_away_points))
 
         simulated_query ={
             HOME_FIELD:home_team,
@@ -328,11 +412,228 @@ def simulate_matches():
             HOME_POINTS_FIELD:home_points,
             AWAY_POINTS_FIELD:away_points,
         }
-
+        
+        
         db.simulated_results.update_one(simulated_query,{"$set":simulated_result},True)
 
     print("Total Matches simulated: %s"%(total_matches))
     print("Correct results simulated: %s"%(correct_results))
+    print("percentage correct : %s "%(round((correct_results/total_matches)*100)))
+    
+def actual_league_table():
+    home_actual_query=[
+        {
+            '$match': {
+                SEASON_FIELD: SEASON, 
+                SEASON_GW_FIELD: {
+                    '$lte': SEASON_GW
+                },
+                SIMULATION_VERSION_FIELD:SIMULATION_VERSION
+            }
+        }, {
+            '$group': {
+                '_id': '$home', 
+                'points': {
+                    '$sum': '$home_points'
+                }
+            }
+        }
+    ]
+    
+    home_actual_points = db.matches.aggregate(home_actual_query)
+
+    for points in home_actual_points:
+        team_points = points["points"]
+        team_name = points["_id"]
+
+        query = {
+            TEAM_FIELD:team_name,
+            SEASON_GW_FIELD:SEASON_GW,
+            SIMULATION_VERSION_FIELD:SIMULATION_VERSION
+        }
+
+        update={
+            ACTUAL_HOME_POINTS_FIELD:team_points,
+
+        }
+        db.league_table.update_one(query,{"$set":update},True)
+    away_actual_query=[
+        {
+            '$match': {
+                SEASON_FIELD: SEASON, 
+                SEASON_GW_FIELD: {
+                    '$lte': SEASON_GW
+                },
+                SIMULATION_VERSION_FIELD:SIMULATION_VERSION
+            }
+        }, {
+            '$group': {
+                '_id': '$away', 
+                'points': {
+                    '$sum': '$away_points'
+                }
+            }
+        }
+    ]
+    
+    away_actual_points = db.matches.aggregate(away_actual_query)
+
+    for points in away_actual_points:
+        team_points = points["points"]
+        team_name = points["_id"]
+
+        query = {
+            TEAM_FIELD:team_name,
+            SEASON_GW_FIELD:SEASON_GW,
+            SIMULATION_VERSION_FIELD:SIMULATION_VERSION
+        }
+
+        update={
+            ACTUAL_AWAY_POINTS_FIELD:team_points,
+
+        }
+        db.league_table.update_one(query,{"$set":update},True)
+        
+def predicted_league_table():
+    home_predicted_query=[
+        {
+            '$match': {
+                SEASON_FIELD: SEASON, 
+                SEASON_GW_FIELD: {
+                    '$gt': SEASON_GW
+                },
+                SIMULATION_VERSION_FIELD:SIMULATION_VERSION
+            }
+        }, {
+            '$group': {
+                '_id': '$home', 
+                'points': {
+                    '$sum': '$home_points'
+                }
+            }
+        }
+    ]
+    
+    home_predicted_points = db.simulated_results.aggregate(home_predicted_query)
+
+    for points in home_predicted_points:
+        team_points = points["points"]
+        team_name = points["_id"]
+
+        query = {
+            TEAM_FIELD:team_name,
+            SEASON_GW_FIELD:SEASON_GW,
+            SIMULATION_VERSION_FIELD:SIMULATION_VERSION
+        }
+
+        update={
+            PREDICTED_HOME_POINTS_FIELD:team_points,
+
+        }
+        db.league_table.update_one(query,{"$set":update},True)
+    away_predicted_query=[
+        {
+            '$match': {
+                SEASON_FIELD: SEASON, 
+                SEASON_GW_FIELD: {
+                    '$gt': SEASON_GW
+                },
+                SIMULATION_VERSION_FIELD:SIMULATION_VERSION
+            }
+        }, {
+            '$group': {
+                '_id': '$away', 
+                'points': {
+                    '$sum': '$away_points'
+                }
+            }
+        }
+    ]
+    
+    away_predicted_points = db.simulated_results.aggregate(away_predicted_query)
+
+    for points in away_predicted_points:
+        team_points = points["points"]
+        team_name = points["_id"]
+
+        query = {
+            TEAM_FIELD:team_name,
+            SEASON_GW_FIELD:SEASON_GW,
+            SIMULATION_VERSION_FIELD:SIMULATION_VERSION
+        }
+
+        update={
+            PREDICTED_AWAY_POINTS_FIELD:team_points,
+
+        }
+        db.league_table.update_one(query,{"$set":update},True)
+
+    league_table=[
+    {
+        '$match': {
+            SEASON_GW_FIELD: SEASON_GW
+        }
+    }, {
+        '$project': {
+            '_id': '$team', 
+            'points': {
+                '$sum': [
+                    '$actual_away_points', '$actual_home_points', '$predicted_away_points', '$predicted_home_points'
+                ]
+            }
+        }
+    }, {
+        '$sort': {
+            'points': -1
+        }
+    }
+]
+
+    positions = db.league_table.aggregate(league_table)
+    print("|**Team**|**Predicted Position**|**Predicted Points**|")
+    print("|-------------------|------------|------------|")
+    i=0
+    for position in positions:
+         i=i+1
+         print("|"+position["_id"]+"|"+str(i)+"|"+str(position["points"])+"|")
+
+def compare():
+    home_actual_query=[
+        {
+            '$match': {
+                SEASON_FIELD: SEASON, 
+            }
+        }, {
+            '$group': {
+                '_id': '$home', 
+                'points': {
+                    '$sum': '$homes'
+                }
+            }
+        }
+    ]
+    
+    home_actual_points = db.matches.aggregate(home_actual_query)
+    for home_points in home_actual_points:
+        points = home_points["points"]
+        away_actual_query=[
+            {
+                '$match': {
+                    AWAY_FIELD:home_points[HOME_FIELD],
+                    SEASON_FIELD: SEASON, 
+                }
+            }, {
+                '$group': {
+                    '_id': '$away', 
+                    'points': {
+                        '$sum': '$away_points'
+                    }
+                }
+            }
+        ]
+        away_actual_points = db.matches.aggregate(away_actual_query)
+        for away_points in away_actual_points:
+            points = points+away_points["points"]
 
 def analysis():
     teams = db.club_values.find()
@@ -381,6 +682,7 @@ if(len(sys.argv)==1):
     create_match_stats()
     weighted_average_xg_std()
     weighted_average_g_std()
+    weighted_average_possession_std()
     print("---completed all in %s seconds ---" % (time.time() - start_time))
 
 if(len(sys.argv)>1 and sys.argv[1]=="simulate"):
@@ -388,7 +690,13 @@ if(len(sys.argv)>1 and sys.argv[1]=="simulate"):
     simulate_matches()
     print("---completed simulate_matches in %s seconds ---" % (time.time() - start_time))
 
-if(len(sys.argv)>1 and sys.argv[1]=="analysis"):
+if(len(sys.argv)>1 and sys.argv[1]=="analyse"):
     start_time = time.time()
     analysis()
     print("---completed analysis in %s seconds ---" % (time.time() - start_time))
+
+if(len(sys.argv)>1 and sys.argv[1]=="create_league_table"):
+    start_time = time.time()
+    actual_league_table()
+    predicted_league_table()
+    print("---completed create_league_table in %s seconds ---" % (time.time() - start_time))
