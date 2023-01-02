@@ -2,39 +2,72 @@
 
 ## What does it do
 
-This is the code I use to predict the premier league. It is a command line program, backed by a Mongo instance. Currently, the code runs everything, including aggregating the raw stats, simulating the matches and printing the results. This will change (as I don't to run against Mongo every time)
+This is the code I use to predict the premier league. It is a command line program, backed by a Mongo instance. Currently, the code runs everything, including aggregating the raw stats, simulating the matches and printing the results. 
 
 ## Known Bugs
-1. Currently, you cannot run the the code twice without deleting the predicted_points and actuaResult collections. Otherwise the predictions will increment. I'll get round to it at some point.
+
 
 ## How to use
 There is some setup needed.
 
-- A mongo instance. I am using Mongo Atlas, but of course local is fine. You will need to create a database within that and one collection called matches.
-- Populate the matches collection. I do this using a csv like the one in this repo. 
-- 3 environment variables are needed:
-  - MONGO_URL - the fill Mongo connection string (including username and password)
-  - DB - the name of the database you created above. I have created several to test the model over multiple seasons
-  - GW - this is the gameweek that you are running the model from. For previous seasons you may want to run against different gameweeks
+As mentioned above, you need a Mongo instance. 
 
-After that, just run python predictive-model.py
+You then need to import some data (would love to connect to an API at some point)
+
+I use these csv files:
+- [all-matches](all-matches.csv) **Import into a `matches` collection.** A list of matches for all seasons from 1516 season and their stats. Including xg and possession and other interesting things. I got this from footystats.com. It's not free and I don't use all the stats they provide.
+- [clubs](clubs.csv) **Import into a `club_values` collection.** A list of all clubs and their relative value change since a specified time. I get this from Transfermarkt website and have got value change compared to end of last season. Reason for this described below
+
+
+A .env file is needed. example values below
+
+```
+MONGO_URL=mongodb://localhost:27017/?retryWrites=true&w=majority
+DB=football_analysis
+
+# no longer used but leaving this in. It allows for different models to be tested side by side
+MODEL_VERSION=1.0.3
+SIMULATION_VERSION=0.0.4
+
+## which game week do you want to analyse from - this matters if you want to predict from an earlier gameweek
+GW=18
+## which season are you running the predictions against
+SEASON=2223
+
+## season and gameweek - 2223 is the season and 18 is the gameweek (should be 01 etc... for less than 10) needs to match the above. Needs rewriting to not need all three
+SEASON_GW=222318
+
+## Weightings of past performance. Most recent has more weighting - 
+## this can be and should be adjusted
+1516=0.1
+1617=0.25
+1718=0.5
+1819=1
+1920=2
+2021=5
+2122=10
+2223=100
+```
+After that, just run python five-year-analysis.py. This will run the setup of the data, analysis of performance, simulation of the matches and then a predicted table. When running locally (with a local Mongo) this will take around 230 seconds.
+
+You can run these individually if you like, just add the following command when running the code:
+- `create_stats` (sets up the data with working out xg and the like)
+- `analyse` (analyses the data, developing coefficients for each team using the weightings)
+- `simulate` (simulates all matches using a Monte Carlo simulation)
+- `create_league_table` (creates the predicted final table for that season)
 
 ## How does the model work
 
 It all revolves around the idea of Expected Goals(xG). The best description of xG can be found [here](https://theanalyst.com/eu/2021/07/what-are-expected-goals-xg/).
 
-We start with the assumption that xG remains relatively stable as the season goes on. This is largely only true from the halfway stage and so the accuracy of the model applies best after 19 games.
+We start with the assumption that xG remains relatively stable as the season goes on. This is largely only true from the halfway stage and so the accuracy of the model applies best after 19 games, though from around 16 games it isn't bad. I have not run the new model early on in the season yet and now I take into account squad value this may be better. But will try that out at some other point.
 
-From there we look at each teams' xG when playing:
-- At home
-- Against the ranks of the teams
+The model then simulates the remaining matches, predicts the results of the those matches using a Monte Carlo simulation and then use the mean result from the simulation to give the most likely result. I did use the mode initially (this made sense at the time) but actually this felt too "binary" considering there were only 3 likely outcomes. So switched to mean and this does seem to work better.
 
-The model then simulates the remaining matches, predicts the results of the those matches and then gets points. That's about it.
+When simulating I also take into account the relative value change of each squad compared to the end of last season. This is used to adjust this season's weighting. The idea is that the change in value will impact their relative quality to last season. Little change and you'd expect they would perform closer to last season than this. A lot of change and this season should have a greater impact than last, relatively. A squad's value can increase or decrease because of player purchases or sales, but also because a change in player's performance. e.g. Saka is more valuable this season than last, while Ronaldo (no longer with us...premier league wise) is less valuable
 
 ## How the model could be improved
-There are a few areas that I would like to improve on which I think will make the accuracy of the predictions better
-1. Monte Carlo simulation. Currently, the match simulation is based on the average xG per game. A Monte Carlo simulation will use the average and standard deviation and run through a few thousand simulations. The idea is that it will give the most likely result. I will try that out
-2. ~~The simulation I run assumes that the position they were in when the prediction was made (e.g. Southampton were 15 in gameweek 19) is where they will be throughout. And therefore there positions are not taken into account as the games are simulated~~
+
 
 ## Other future features
 1. An API that returns the predictions
@@ -45,33 +78,8 @@ There are a few areas that I would like to improve on which I think will make th
 
 That's about all I can think of for now. Most focus will be on improving the model
 
-## How well it works
-After the half way stage, the model will predict 6/7 correctly with a further 5-8 within one space. 
-
-As an example, how the model would have predicted 21/22 after 19 games as it stands (changes are afoot):
-
-|**Team**|**Predicted Position**|**Actual Position**|**Difference**|**Predicted Points**|**Actual Points**|**Difference**|
-|-------------------|------------|------------|--------------|--------------|----------|-----------|
-|Manchester City|1|1|0|104|93|11|
-|Liverpool|2|2|0|91|92|-1|
-|Chelsea|3|3|0|75|74|1|
-|Tottenham Hotspur|4|4|0|70|71|-1|
-|Arsenal|5|5|0|69|69|0|
-|Manchester United|6|6|0|68|58|10|
-|West Ham United|7|7|0|66|56|10|
-|Leicester City|8|8|0|51|52|-1|
-|Wolverhampton Wanderers|9|9|0|48|51|-3|
-|Aston Villa|10|14|-4|47|45|2|
-|Crystal Palace|11|12|-1|43|48|-5|
-|Southampton|12|15|-3|43|40|3|
-|Brighton & Hove Albion|13|10|3|42|51|-9|
-|Everton|14|16|-2|38|39|-1|
-|Watford|15|19|-4|36|23|13|
-|Burnley|16|18|-2|31|35|-4|
-|Leeds United|17|17|0|31|38|-7|
-|Brentford|18|13|5|29|46|-17|
-|Newcastle United|19|11|8|26|49|-23|
-|Norwich City|20|20|0|26|22|4|
+## What is the prediction for the current season
+[Look here](prediction.md)
 
 
 ## Enhancements to the code
